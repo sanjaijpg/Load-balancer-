@@ -1,0 +1,121 @@
+package com.example.bluetoothcontrol;
+
+import android.bluetooth.BluetoothAdapter;
+import android.bluetooth.BluetoothDevice;
+import android.bluetooth.BluetoothSocket;
+import android.os.Bundle;
+import android.view.View;
+import android.widget.*;
+import androidx.appcompat.app.AppCompatActivity;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.util.Set;
+import java.util.UUID;
+
+public class MainActivity extends AppCompatActivity {
+
+    Button buttonConnect, buttonOn, buttonOff, buttonReset, buttonLock, buttonUnblock;
+    TextView statusText, receivedText;
+    BluetoothAdapter bluetoothAdapter;
+    BluetoothSocket btSocket;
+    OutputStream outputStream;
+    InputStream inputStream;
+    boolean isConnected = false;
+    Thread listenThread;
+
+    final String HC05_MAC = "00:00:00:00:00:00"; // Change to your HC-05 MAC
+    final UUID btUUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_main);
+        buttonConnect = findViewById(R.id.buttonConnect);
+        buttonOn = findViewById(R.id.buttonOn);
+        buttonOff = findViewById(R.id.buttonOff);
+        buttonReset = findViewById(R.id.buttonReset);
+        buttonLock = findViewById(R.id.buttonLock);
+        buttonUnblock = findViewById(R.id.buttonUnblock);
+        statusText = findViewById(R.id.statusText);
+        receivedText = findViewById(R.id.receivedText);
+
+        bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
+
+        buttonConnect.setOnClickListener(v -> connectToHC05());
+
+        View.OnClickListener sendListener = view -> {
+            if (!isConnected) return;
+            String cmd = "";
+            if (view == buttonOn) cmd = "ON\n";
+            else if (view == buttonOff) cmd = "OFF\n";
+            else if (view == buttonReset) cmd = "RESET\n";
+            else if (view == buttonLock) cmd = "LOCK\n";
+            else if (view == buttonUnblock) cmd = "UNBLOCK\n";
+            try {
+                outputStream.write(cmd.getBytes());
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        };
+
+        buttonOn.setOnClickListener(sendListener);
+        buttonOff.setOnClickListener(sendListener);
+        buttonReset.setOnClickListener(sendListener);
+        buttonLock.setOnClickListener(sendListener);
+        buttonUnblock.setOnClickListener(sendListener);
+    }
+
+    void connectToHC05() {
+        if (bluetoothAdapter == null) {
+            Toast.makeText(this, "No Bluetooth Adapter", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (!bluetoothAdapter.isEnabled()) {
+            bluetoothAdapter.enable();
+        }
+
+        Set<BluetoothDevice> pairedDevices = bluetoothAdapter.getBondedDevices();
+        BluetoothDevice device = null;
+        for (BluetoothDevice d : pairedDevices) {
+            if (d.getName().equals("HC-05") || d.getAddress().equals(HC05_MAC)) {
+                device = d;
+                break;
+            }
+        }
+
+        if (device == null) {
+            statusText.setText("HC-05 not found");
+            return;
+        }
+
+        try {
+            btSocket = device.createRfcommSocketToServiceRecord(btUUID);
+            btSocket.connect();
+            outputStream = btSocket.getOutputStream();
+            inputStream = btSocket.getInputStream();
+            isConnected = true;
+            statusText.setText("Connected to HC-05");
+
+            listenThread = new Thread(() -> {
+                byte[] buffer = new byte[1024];
+                int bytes;
+                while (isConnected) {
+                    try {
+                        bytes = inputStream.read(buffer);
+                        String received = new String(buffer, 0, bytes);
+                        runOnUiThread(() -> receivedText.append(received + "\n"));
+                    } catch (IOException e) {
+                        break;
+                    }
+                }
+            });
+            listenThread.start();
+
+        } catch (IOException e) {
+            e.printStackTrace();
+            statusText.setText("Connection failed");
+        }
+    }
+}
